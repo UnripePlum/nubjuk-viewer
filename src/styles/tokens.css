@@ -1,0 +1,61 @@
+/* SHOWCASE.md 디자인 토큰 */
+:root {
+  --bg: #fafafa;
+  --surface: #ffffff;
+  --fg: #0a0a0a;
+  --fg-dim: #6b7280;
+  --fg-faint: #9ca3af;
+  --accent: #ff6b35;
+  --accent-soft: #fff0e8;
+  --accent-deep: #d94a14;
+  --success: #10b981;
+  --error: #ef4444;
+  --border: #e5e7eb;
+  --border-strong: #d1d5db;
+
+  --shadow-pulse: 0 0 24px var(--accent-soft);
+
+  --font-sans: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-feature-settings: 'ss01';
+  -webkit-font-smoothing: antialiased;
+}
+
+img { image-rendering: pixelated; }
+
+@keyframes pulse-soft {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50%      { opacity: 1;    transform: scale(1.08); }
+}
+
+@keyframes flash-bg {
+  0%   { background: var(--accent-soft); }
+  100% { background: transparent; }
+}
+
+@keyframes draw-line {
+  from { stroke-dashoffset: var(--len, 100); }
+  to   { stroke-dashoffset: 0; }
+}
+
+@keyframes blink {
+  0%, 50%   { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
