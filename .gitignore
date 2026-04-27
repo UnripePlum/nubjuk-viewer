@@ -1,0 +1,13 @@
+.DS_Store
+node_modules/
+.next/
+out/
+dist/
+build/
+.env.local
+.env.*.local
+*.tsbuildinfo
+.idea/
+.vscode/
+src/generated/
+.omc/
