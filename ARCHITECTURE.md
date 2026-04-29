@@ -215,7 +215,7 @@ useEffect(() => {
 |-------|------|
 | 0~1 | 없음 (viewer 디렉토리 미생성) |
 | 2 | WebSocketViewerConnection + WebMotionController + IntentDispatcher + ViewerStore + UI |
-| 3 | (변경 없음) `motion_failed.reason` 신규 값 UI 반영만 |
+| 3 | (변경 없음) `motion_failed.reason` 신규 값 UI 반영 + e-stop 빨간 배너 |
 | 4 | (변경 없음) `error{brain_unreachable}` 토스트만 |
-| 5 | WebMotionController **→ UnityMotionController 교체** (web 보존 가능) |
+| 5 | `viewer/unity/` 별도 C# 트리가 같은 인터페이스 구현. web (Next.js)은 보존 — 디버깅 도구로 잔존 |
 | 6 | DEV_MODE=n 정책에 따라 폐기 또는 read-only |

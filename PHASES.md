@@ -3,6 +3,22 @@
 > Phase 0 → 1 → 2 → 3 → 4 → 5 → 6 순서대로 진행. 임의로 phase 순서 바꾸지 말 것.
 > 인터페이스 시그니처는 `INTERFACES.md`, 컴포넌트 다이어그램·메시지 매트릭스는 `ARCHITECTURE.md` 참고.
 
+## 진행 현황 (2026-04-30)
+
+| Phase | 상태 | 비고 |
+|-------|------|------|
+| 0~1 | — | viewer 작업 없음 (mcu standalone) |
+| 2 | ✅ 코드 완료 | DI/store/transport/UI/tests 92개. 실 ESP 통합 검증만 mcu side 의존. ESP host 모달 / DEV_MODE manual_trigger gating은 deferred |
+| 3 | ✅ | `motion_failed.reason` UI 차별화 (`HW·FAIL`, `E·STOP`, `PRECOND` 등) + e-stop 사선 hazard stripe 빨간 배너 |
+| 4 | ✅ | brain_unreachable informational toast (5초 자동 dismiss + same-boot hello reset 시 clear) |
+| 5.1 | ✅ | `viewer/unity/` plain C# 1:1 이식 (Protocol/Wire/IViewerConnection/IMotionController/ViewerStore/IntentDispatcher/MockMotionController). dotnet 컴파일은 사용자 환경 |
+| 5.2 | ◯ | NativeWebSocket-기반 `WebSocketViewerConnection.cs` + Animator-기반 `UnityMotionController.cs` + `NubjukController.cs` MonoBehaviour. Unity 6 LTS 결정 후 |
+| 5.3 | ◯ | Scene + Animator 컨트롤러 + Inspector 구성 |
+| 5.4 | ◯ | TS↔C# canonical snapshot serializer + 5 mock sequence parity 검증. **5.2 직후 우선화** (C# 0% coverage 해소) |
+| 6 | ◯ | DEV_MODE=n 빌드 정책 사용자 결정 |
+
+**Codex 리뷰 history**: Phase 2 Option D refactor (8fb2fec), 테스트 lane (c24c7d4), WS+host (24aff39), Phase 3+4 + 코덱스 P2/P3 fixes (fc7bec1), Phase 5.1 + plan-eng-review (aafb9dd) — 모두 통과.
+
 ## Phase 0~1 — viewer 작업 없음
 
 mcu가 standalone으로 동작하는 단계. viewer 디렉토리는 비어있음.
