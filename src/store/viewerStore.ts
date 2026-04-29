@@ -12,6 +12,7 @@ import type {
   EspMessage,
   FsmState,
   IntentMessage,
+  MotionFailReason,
   StateMessage,
 } from "@/types/protocol";
 import type { ConnectionState } from "@/ws/ViewerConnection";
@@ -46,10 +47,13 @@ export interface ViewerStoreState {
   // motion (UI consumption)
   activeMotion: ActiveMotion | null;
   motionStatus: MotionUiStatus;
-  motionFailReason: string | null;
+  motionFailReason: MotionFailReason | null;
   currentPose: Pose;
   // dev panel (recent ESP messages, latest 10)
   recentMessages: EspMessage[];
+  // Phase 4: brain dual ↔ mcu fallback informational
+  // 마지막 error{code:"brain_unreachable"} 도착 시점 (Date.now()). UI 5s 자동 dismiss용.
+  lastBrainUnreachableAt: number | null;
 }
 
 const INITIAL_STATE: ViewerStoreState = {
@@ -64,6 +68,7 @@ const INITIAL_STATE: ViewerStoreState = {
   motionFailReason: null,
   currentPose: "idle",
   recentMessages: [],
+  lastBrainUnreachableAt: null,
 };
 
 type Listener = () => void;
@@ -118,7 +123,11 @@ export class ViewerStore {
         // motion lifecycle은 IntentDispatcher가 별도로 store.applyMotionEvent 호출
         break;
       case "error":
-        // 에러는 dev panel에서 recentMessages로 표시. 별도 toast handler는 UI 레벨에서.
+        // 에러는 기본 recentMessages로 표시. 특정 code는 별도 mirror 필드 갱신:
+        //  - brain_unreachable → lastBrainUnreachableAt (Phase 4 informational toast용)
+        if (msg.payload.code === "brain_unreachable") {
+          this.update((s) => ({ ...s, lastBrainUnreachableAt: Date.now() }));
+        }
         break;
       case "heartbeat":
         // currentState mirror 갱신
@@ -139,7 +148,7 @@ export class ViewerStore {
           currentState,
         };
       }
-      // 같은 boot_id 또는 첫 hello → session reset (stateLog, lastIntent)
+      // 같은 boot_id 또는 첫 hello → session reset (stateLog, lastIntent, brain fallback toast)
       return {
         ...s,
         bootId,
@@ -149,6 +158,7 @@ export class ViewerStore {
         activeMotion: null,
         motionStatus: null,
         motionFailReason: null,
+        lastBrainUnreachableAt: null,
       };
     });
   }

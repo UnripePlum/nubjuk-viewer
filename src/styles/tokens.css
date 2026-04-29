@@ -53,6 +53,12 @@ img { image-rendering: pixelated; }
   51%, 100% { opacity: 0; }
 }
 
+/* hazard stripe slide — EStopBanner. opacity 100% 유지하여 비상 알림 가시성 보존. */
+@keyframes estop-stripe {
+  from { background-position: 0 0; }
+  to   { background-position: 34px 0; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;

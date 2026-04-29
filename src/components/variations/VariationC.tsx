@@ -5,7 +5,7 @@
 // store-driven
 
 import { useEffect, useState } from "react";
-import { ConnectionBadge, MotionChip, NubjukViewer, VoiceVisualizer } from "../shared";
+import { BrainStatusBadge, ConnectionBadge, EStopBanner, MotionChip, NubjukViewer, ProtocolErrorBadge, VoiceVisualizer } from "../shared";
 import type { ViewerStore } from "@/store/viewerStore";
 import { useViewerStore } from "@/store/viewerStore";
 import { selectIntentDisplay, selectVoicePhase, type IntentDisplay } from "@/store/selectors";
@@ -18,7 +18,7 @@ export function VariationC({ store }: Props) {
   const state = useViewerStore(store);
   const phase = selectVoicePhase(state);
   const intent = selectIntentDisplay(state);
-  const { activeMotion, motionStatus, currentPose, connectionState } = state;
+  const { activeMotion, motionStatus, motionFailReason, currentPose, connectionState, protocolErrors, lastBrainUnreachableAt } = state;
   const motionFiring = motionStatus === "started";
 
   const connState =
@@ -44,18 +44,33 @@ export function VariationC({ store }: Props) {
         flexDirection: "column",
       }}
     >
+      <EStopBanner motionStatus={motionStatus} failReason={motionFailReason} />
       <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
         <ConnectionBadge state={connState} />
         <div
           style={{
-            fontFamily: "var(--font-mono)",
-            fontSize: 10,
-            color: "var(--fg-faint)",
-            letterSpacing: "0.1em",
-            textTransform: "uppercase",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            flexWrap: "wrap",
+            justifyContent: "flex-end",
+            maxWidth: "70%",
+            rowGap: 4,
           }}
         >
-          {phase}
+          <BrainStatusBadge lastBrainUnreachableAt={lastBrainUnreachableAt} />
+          <ProtocolErrorBadge count={protocolErrors.count} recent={protocolErrors.recent} />
+          <div
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: 10,
+              color: "var(--fg-faint)",
+              letterSpacing: "0.1em",
+              textTransform: "uppercase",
+            }}
+          >
+            {phase}
+          </div>
         </div>
       </header>
 
@@ -133,7 +148,7 @@ export function VariationC({ store }: Props) {
             justifyContent: "center",
           }}
         >
-          {(activeMotion || motionStatus) && <MotionChip motion={activeMotion?.name} status={motionStatus} />}
+          {(activeMotion || motionStatus) && <MotionChip motion={activeMotion?.name} status={motionStatus} failReason={motionFailReason} />}
         </div>
       </section>
 

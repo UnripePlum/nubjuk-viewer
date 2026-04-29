@@ -5,7 +5,7 @@
 // 모바일 폭 360, 세로 카드 layout
 // store-driven (single source of truth via ViewerStore)
 
-import { ConnectionBadge, IntentPanel, MotionChip, NubjukViewer, VoiceVisualizer } from "../shared";
+import { BrainStatusBadge, ConnectionBadge, EStopBanner, IntentPanel, MotionChip, NubjukViewer, ProtocolErrorBadge, VoiceVisualizer } from "../shared";
 import type { ViewerStore } from "@/store/viewerStore";
 import { useViewerStore } from "@/store/viewerStore";
 import { selectIntentDisplay, selectVoicePhase } from "@/store/selectors";
@@ -19,7 +19,7 @@ export function VariationA({ store, showDevHint = true }: Props) {
   const state = useViewerStore(store);
   const phase = selectVoicePhase(state);
   const intent = selectIntentDisplay(state);
-  const { activeMotion, motionStatus, currentPose, connectionState } = state;
+  const { activeMotion, motionStatus, motionFailReason, currentPose, connectionState, protocolErrors, lastBrainUnreachableAt } = state;
 
   const wakeFiring = phase === "listening";
   const intentFiring = !!intent;
@@ -46,6 +46,7 @@ export function VariationA({ store, showDevHint = true }: Props) {
         overflow: "hidden",
       }}
     >
+      <EStopBanner motionStatus={motionStatus} failReason={motionFailReason} />
       <svg
         width="100%"
         height="100%"
@@ -116,7 +117,21 @@ export function VariationA({ store, showDevHint = true }: Props) {
           <div style={{ fontFamily: "var(--font-mono)", fontSize: 13, fontWeight: 600, letterSpacing: "0.04em" }}>
             nubjuk<span style={{ color: "var(--accent)" }}>.viewer</span>
           </div>
-          <ConnectionBadge state={connState} />
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              flexWrap: "wrap",
+              justifyContent: "flex-end",
+              maxWidth: "60%",
+              rowGap: 4,
+            }}
+          >
+            <BrainStatusBadge lastBrainUnreachableAt={lastBrainUnreachableAt} />
+            <ProtocolErrorBadge count={protocolErrors.count} recent={protocolErrors.recent} />
+            <ConnectionBadge state={connState} />
+          </div>
         </header>
 
         <section
@@ -158,7 +173,7 @@ export function VariationA({ store, showDevHint = true }: Props) {
         </section>
 
         <section style={{ display: "flex", justifyContent: "center", paddingTop: 4, height: 28, flex: "0 0 auto" }}>
-          <MotionChip motion={activeMotion?.name} status={motionStatus} />
+          <MotionChip motion={activeMotion?.name} status={motionStatus} failReason={motionFailReason} />
         </section>
 
         <section

@@ -17,15 +17,24 @@ export class MockMotionController implements MotionController {
   private active: MockActive | null = null;
   private handlers = new Set<(ev: MotionEvent) => void>();
   private events: MotionEvent[] = [];
+  // dispatcher가 settle을 부른 *호출 자체* 추적 — cid 불일치로 no-op 된 호출도 포함.
+  // 테스트가 "stale 메시지에 settle 호출 자체가 안 됐는지" 검증할 때 사용 (Codex P2).
+  private settleCalls: MotionSettleResult[] = [];
 
   // 테스트가 검증하는 emit log
   getEvents(): readonly MotionEvent[] {
     return this.events;
   }
 
+  // 테스트가 settle 호출 시도 자체를 검증 — events와 달리 mismatched cid도 기록.
+  getSettleCalls(): readonly MotionSettleResult[] {
+    return this.settleCalls;
+  }
+
   resetSpy(): void {
     this.active = null;
     this.events = [];
+    this.settleCalls = [];
   }
 
   async play(intent: IntentName, durationMs: number, correlationId: string): Promise<void> {
@@ -49,6 +58,8 @@ export class MockMotionController implements MotionController {
   }
 
   settle(result: MotionSettleResult): void {
+    // 호출 자체를 기록 (cid 불일치로 no-op 되더라도) — dispatcher 회귀 가드용.
+    this.settleCalls.push(result);
     if (!this.active || this.active.correlationId !== result.correlationId) return;
     const cid = this.active.correlationId;
     this.active = null;

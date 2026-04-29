@@ -5,7 +5,7 @@
 // store-driven
 
 import { useEffect, useState } from "react";
-import { NubjukViewer, VoiceVisualizer } from "../shared";
+import { BrainStatusBadge, EStopBanner, failReasonLabel, NubjukViewer, ProtocolErrorBadge, VoiceVisualizer } from "../shared";
 import type { ViewerStore } from "@/store/viewerStore";
 import { useViewerStore } from "@/store/viewerStore";
 import { selectIntentDisplay, selectVoicePhase, type IntentDisplay } from "@/store/selectors";
@@ -26,7 +26,7 @@ export function VariationB({ store }: Props) {
   const state = useViewerStore(store);
   const phase = selectVoicePhase(state);
   const intent = selectIntentDisplay(state);
-  const { activeMotion, motionStatus, currentPose, recentMessages } = state;
+  const { activeMotion, motionStatus, motionFailReason, currentPose, recentMessages, protocolErrors, lastBrainUnreachableAt } = state;
   const motionFiring = motionStatus === "started";
 
   return (
@@ -46,6 +46,7 @@ export function VariationB({ store }: Props) {
         backgroundSize: "16px 16px",
       }}
     >
+      <EStopBanner motionStatus={motionStatus} failReason={motionFailReason} />
       <header
         style={{
           display: "flex",
@@ -63,23 +64,37 @@ export function VariationB({ store }: Props) {
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 6,
-            fontSize: 10,
-            color: "#0d8a5e",
-            letterSpacing: "0.1em",
+            gap: 8,
+            flexWrap: "wrap",
+            justifyContent: "flex-end",
+            maxWidth: "65%",
+            rowGap: 4,
           }}
         >
-          <span
-            aria-hidden="true"
+          <BrainStatusBadge lastBrainUnreachableAt={lastBrainUnreachableAt} />
+          <ProtocolErrorBadge count={protocolErrors.count} recent={protocolErrors.recent} />
+          <div
             style={{
-              width: 6,
-              height: 6,
-              background: "#10b981",
-              borderRadius: "50%",
-              animation: "pulse-soft 2s ease-in-out infinite",
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              fontSize: 10,
+              color: "#0d8a5e",
+              letterSpacing: "0.1em",
             }}
-          />
-          ESP·UP
+          >
+            <span
+              aria-hidden="true"
+              style={{
+                width: 6,
+                height: 6,
+                background: "#10b981",
+                borderRadius: "50%",
+                animation: "pulse-soft 2s ease-in-out infinite",
+              }}
+            />
+            ESP·UP
+          </div>
         </div>
       </header>
 
@@ -187,7 +202,7 @@ export function VariationB({ store }: Props) {
               fontWeight: 600,
             }}
           >
-            {activeMotion?.name?.toUpperCase() ?? "IDLE"} · {(motionStatus ?? "—").toUpperCase()}
+            {activeMotion?.name?.toUpperCase() ?? "IDLE"} · {motionStatus === "failed" ? failReasonLabel(motionFailReason) : (motionStatus ?? "—").toUpperCase()}
           </span>
         </div>
         <div

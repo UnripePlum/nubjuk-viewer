@@ -101,12 +101,12 @@ describe("WebMotionController", () => {
     expect(ctrl.isPlaying()).toBe(true);
   });
 
-  it("watchdog 만료 (expectedMs*2+grace) → failed{timeout}", async () => {
+  it("watchdog 정확히 expectedMs*2+grace에서 fire (1700ms for 700ms)", async () => {
     await ctrl.play("sit", 700, "cid_a");
-    // watchdog at max(700*2, 700+1000) = 1700
+    // watchdog at max(700*2, 700+1000) = 1700ms 정확히 (Codex P3 정밀화)
     vi.advanceTimersByTime(1699);
-    expect(events).toHaveLength(1);
-    vi.advanceTimersByTime(2);
+    expect(events).toHaveLength(1); // 아직 fire 안 함
+    vi.advanceTimersByTime(1); // 정확히 1700ms — fire
     expect(events).toHaveLength(2);
     expect(events[1]).toMatchObject({
       type: "failed",
@@ -114,6 +114,26 @@ describe("WebMotionController", () => {
       reason: "timeout",
     });
     expect(ctrl.isPlaying()).toBe(false);
+  });
+
+  it("watchdog timing — 짧은 expectedMs(100)는 grace로 1100ms", async () => {
+    await ctrl.play("sit", 100, "cid_a");
+    // watchdog = max(100*2, 100+1000) = 1100ms
+    vi.advanceTimersByTime(1099);
+    expect(events).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(events).toHaveLength(2);
+    expect(events[1]).toMatchObject({ type: "failed", reason: "timeout" });
+  });
+
+  it("watchdog timing — 긴 expectedMs(1500)는 2x로 3000ms", async () => {
+    await ctrl.play("roll_left", 1500, "cid_a");
+    // watchdog = max(1500*2, 1500+1000) = 3000ms
+    vi.advanceTimersByTime(2999);
+    expect(events).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(events).toHaveLength(2);
+    expect(events[1]).toMatchObject({ type: "failed", reason: "timeout" });
   });
 
   it("settle 후 watchdog 클리어 — 더 이상 fire 안 함", async () => {

@@ -118,10 +118,11 @@ describe("IntentDispatcher", () => {
     });
   });
 
-  it("motion_completed stale cid → recordProtocolError, settle 호출 X", () => {
+  it("motion_completed stale cid → recordProtocolError, settle 호출 X (직접 검증)", () => {
     conn.push(startedMsg("cid_1"));
     conn.push(completedMsg("cid_OTHER", 700));
-    // started만 emit, stale은 settle 도달 X
+    // P2 fix: getSettleCalls()로 settle 호출 *시도 자체*가 없었음을 검증
+    expect(motion.getSettleCalls()).toHaveLength(0);
     expect(motion.getEvents()).toHaveLength(1);
     expect(motion.getEvents()[0]).toMatchObject({ type: "started", correlationId: "cid_1" });
     const s = store.getSnapshot();
@@ -142,9 +143,11 @@ describe("IntentDispatcher", () => {
     });
   });
 
-  it("motion_failed stale cid → recordProtocolError, settle 호출 X", () => {
+  it("motion_failed stale cid → recordProtocolError, settle 호출 X (직접 검증)", () => {
     conn.push(startedMsg("cid_1"));
     conn.push(failedMsg("cid_OTHER", "timeout"));
+    // P2 fix: settle 호출 자체가 없었음을 직접 검증
+    expect(motion.getSettleCalls()).toHaveLength(0);
     expect(motion.getEvents()).toHaveLength(1);
     expect(motion.getEvents()[0]).toMatchObject({ type: "started", correlationId: "cid_1" });
     const s = store.getSnapshot();

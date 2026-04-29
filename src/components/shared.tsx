@@ -8,6 +8,8 @@ import { MOTION_REGISTRY, type MotionName } from "@/data/motion-registry";
 import type { Pose } from "@/data/pose-engine";
 import type { ActiveMotion, MotionUiStatus } from "@/store/viewerStore";
 import type { IntentDisplay } from "@/store/selectors";
+import type { MotionFailReason } from "@/types/protocol";
+import { brainStatusRemainingS, brainStatusVisible } from "@/data/brainStatus";
 
 // ───────────────────────────────────────────
 // Connection Badge
@@ -403,7 +405,46 @@ export function NubjukViewer({
 }
 
 // ───────────────────────────────────────────
-// Motion label chip
+// ProtocolErrorBadge — schema/parse 위반 카운터 + 최근 메시지 hover
+// Phase 2 Gate: 위반 발생 시 UI 표시 의무
+// ───────────────────────────────────────────
+export function ProtocolErrorBadge({
+  count,
+  recent,
+}: {
+  count: number;
+  recent: readonly string[];
+}) {
+  if (count === 0) return null;
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      title={recent.slice(-5).join("\n") || `${count} protocol errors`}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        padding: "3px 8px",
+        borderRadius: 999,
+        background: "#fef2f2",
+        color: "var(--error)",
+        fontFamily: "var(--font-mono)",
+        fontSize: 10,
+        fontWeight: 600,
+        letterSpacing: "0.04em",
+        border: "1px solid #fecaca",
+        cursor: "help",
+      }}
+    >
+      <span aria-hidden="true">⚠</span>
+      <span>proto·{count}</span>
+    </div>
+  );
+}
+
+// ───────────────────────────────────────────
+// Motion label chip — reason별 시각 차별화 (Phase 3)
 // ───────────────────────────────────────────
 const CHIP_MAP: Record<NonNullable<MotionUiStatus>, { color: string; bg: string; label: string }> = {
   started:   { color: "var(--accent)",  bg: "var(--accent-soft)", label: "RUNNING" },
@@ -412,9 +453,39 @@ const CHIP_MAP: Record<NonNullable<MotionUiStatus>, { color: string; bg: string;
   cancelled: { color: "var(--fg-dim)",  bg: "var(--bg)",          label: "CANCELLED" },
 };
 
-export function MotionChip({ motion, status }: { motion?: string | null; status: MotionUiStatus }) {
+// motion_failed.reason → 시각 (Phase 3 motion_serial → hardware 전환 대비).
+// MotionFailReason exhaustive — 신규 reason 추가 시 컴파일러가 누락 알림.
+const FAIL_REASON_DISPLAY: Record<MotionFailReason, { label: string; emphasis: boolean }> = {
+  timeout:      { label: "TIMEOUT",   emphasis: false },
+  hardware:     { label: "HW·FAIL",   emphasis: true  },
+  e_stop:       { label: "E·STOP",    emphasis: true  },
+  precondition: { label: "PRECOND",   emphasis: false },
+  unknown:      { label: "UNKNOWN",   emphasis: false },
+};
+
+// reason → 표시 label (B variation의 inline rendering도 같은 mapping 사용 — A/C와 일관성).
+export function failReasonLabel(reason: MotionFailReason | null | undefined): string {
+  if (!reason) return "FAILED";
+  return FAIL_REASON_DISPLAY[reason]?.label ?? reason.toUpperCase();
+}
+
+export function MotionChip({
+  motion,
+  status,
+  failReason,
+}: {
+  motion?: string | null;
+  status: MotionUiStatus;
+  failReason?: MotionFailReason | null;
+}) {
   if (!motion && !status) return null;
   const cfg = status ? CHIP_MAP[status] : { color: "var(--fg-dim)", bg: "var(--bg)", label: "—" };
+
+  // failed 상태에서 reason 정보가 있으면 label에 끼워넣기
+  const reasonInfo =
+    status === "failed" && failReason ? FAIL_REASON_DISPLAY[failReason] : undefined;
+  const finalLabel = reasonInfo ? reasonInfo.label : cfg.label;
+  const emphasized = reasonInfo?.emphasis ?? false;
 
   return (
     <div
@@ -429,7 +500,8 @@ export function MotionChip({ motion, status }: { motion?: string | null; status:
         fontSize: 11,
         letterSpacing: "0.06em",
         color: cfg.color,
-        border: `1px solid ${cfg.color}22`,
+        border: `1px solid ${emphasized ? cfg.color : `${cfg.color}22`}`,
+        fontWeight: emphasized ? 700 : 500,
       }}
     >
       <span
@@ -439,12 +511,112 @@ export function MotionChip({ motion, status }: { motion?: string | null; status:
           height: 5,
           borderRadius: "50%",
           background: cfg.color,
-          animation: status === "started" ? "pulse-soft 1s ease-in-out infinite" : undefined,
+          animation: status === "started"
+            ? "pulse-soft 1s ease-in-out infinite"
+            : emphasized
+            ? "pulse-soft 0.8s ease-in-out infinite"
+            : undefined,
         }}
       />
       <span>{motion ?? "—"}</span>
       <span style={{ opacity: 0.6 }}>·</span>
-      <span>{cfg.label}</span>
+      <span>{finalLabel}</span>
+    </div>
+  );
+}
+
+// ───────────────────────────────────────────
+// BrainStatusBadge — brain dual ↔ mcu fallback informational (Phase 4)
+// error{code:"brain_unreachable"} 수신 후 5초간 표시, 그 후 자동 dismiss.
+// 시간 계산은 src/data/brainStatus.ts 순수 helper로 위임 — 단위 테스트 가능.
+// ───────────────────────────────────────────
+
+export function BrainStatusBadge({ lastBrainUnreachableAt }: { lastBrainUnreachableAt: number | null }) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (lastBrainUnreachableAt === null) return;
+    setNow(Date.now());
+    if (!brainStatusVisible(lastBrainUnreachableAt, Date.now())) return;
+    const id = setInterval(() => {
+      const t = Date.now();
+      setNow(t);
+      if (!brainStatusVisible(lastBrainUnreachableAt, t)) clearInterval(id);
+    }, 1000);
+    return () => clearInterval(id);
+  }, [lastBrainUnreachableAt]);
+
+  if (!brainStatusVisible(lastBrainUnreachableAt, now)) return null;
+  const remainingS = brainStatusRemainingS(lastBrainUnreachableAt, now);
+
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        padding: "3px 8px",
+        borderRadius: 999,
+        background: "#fffbeb",
+        color: "#b45309",
+        fontFamily: "var(--font-mono)",
+        fontSize: 10,
+        fontWeight: 600,
+        letterSpacing: "0.04em",
+        border: "1px solid #fde68a",
+      }}
+      title={`brain unreachable ${remainingS}s remaining`}
+    >
+      <span aria-hidden="true">⚡</span>
+      <span>brain·fallback</span>
+      <span style={{ opacity: 0.6 }}>·{remainingS}s</span>
+    </div>
+  );
+}
+
+// ───────────────────────────────────────────
+// EStopBanner — e-stop 발생 시 빨간 배너 (Phase 3)
+// motionStatus === 'failed' && reason === 'e_stop'일 때만 노출.
+// 다음 motion_started로 motionStatus 바뀌면 자동 dismiss.
+// ───────────────────────────────────────────
+export function EStopBanner({
+  motionStatus,
+  failReason,
+}: {
+  motionStatus: MotionUiStatus;
+  failReason: MotionFailReason | null;
+}) {
+  if (motionStatus !== "failed" || failReason !== "e_stop") return null;
+  // pulse-soft 사용 X — 전체 banner를 fade하면 비상 알림 가시성이 오히려 약해짐 (Codex P3).
+  // diagonal hazard stripe만 슬라이드 → 텍스트는 항상 100% opacity로 명료.
+  return (
+    <div
+      role="alert"
+      aria-live="assertive"
+      style={{
+        position: "absolute",
+        top: 0,
+        left: 0,
+        right: 0,
+        background:
+          "repeating-linear-gradient(45deg, var(--error) 0 12px, #b91c1c 12px 24px)",
+        backgroundSize: "34px 34px",
+        color: "#ffffff",
+        padding: "10px 16px",
+        fontFamily: "var(--font-mono)",
+        fontSize: 12,
+        fontWeight: 700,
+        letterSpacing: "0.08em",
+        textTransform: "uppercase",
+        textAlign: "center",
+        zIndex: 50,
+        boxShadow: "0 2px 8px rgba(220, 38, 38, 0.4)",
+        animation: "estop-stripe 1.2s linear infinite",
+      }}
+    >
+      ⚠ E-STOP · 비상정지 발동
     </div>
   );
 }

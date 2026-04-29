@@ -170,7 +170,7 @@ describe("ViewerStore", () => {
     expect(s.currentPose).toBe("idle"); // pose 유지 (실패 시 advance X)
   });
 
-  it("applyMotionEvent cancelled when terminal → no-op (race guard)", () => {
+  it("applyMotionEvent cancelled when completed → no-op (race guard)", () => {
     store.applyMotionEvent({
       type: "started",
       correlationId: "cid_1",
@@ -193,12 +193,83 @@ describe("ViewerStore", () => {
     expect(store.getSnapshot().motionStatus).toBe("completed");
   });
 
+  it("applyMotionEvent cancelled when failed → no-op (race guard, Codex P3)", () => {
+    store.applyMotionEvent({
+      type: "started",
+      correlationId: "cid_1",
+      intent: "roll_left",
+      expectedMs: 1500,
+    });
+    store.applyMotionEvent({
+      type: "failed",
+      correlationId: "cid_1",
+      reason: "hardware",
+    });
+    expect(store.getSnapshot().motionStatus).toBe("failed");
+    expect(store.getSnapshot().motionFailReason).toBe("hardware");
+
+    // 늦은 cancelled가 failed reason을 덮어쓰지 않음
+    store.applyMotionEvent({
+      type: "cancelled",
+      correlationId: "cid_1",
+      reason: "stop_called",
+    });
+    expect(store.getSnapshot().motionStatus).toBe("failed");
+    expect(store.getSnapshot().motionFailReason).toBe("hardware");
+  });
+
   it("recordProtocolError → count + recent (cyclic 8개)", () => {
     store.recordProtocolError("first");
     store.recordProtocolError("second");
     const s = store.getSnapshot();
     expect(s.protocolErrors.count).toBe(2);
     expect(s.protocolErrors.recent).toEqual(["first", "second"]);
+  });
+
+  it("error{code:brain_unreachable} → lastBrainUnreachableAt 갱신 (Phase 4)", () => {
+    const before = Date.now();
+    const errMsg: EspMessage = {
+      v: 1,
+      type: "error",
+      ts_ms: 0,
+      device_id: D,
+      boot_id: "boot_a",
+      payload: { code: "brain_unreachable", message: "brain ws closed" },
+    };
+    store.applyEspMessage(errMsg);
+    const ts = store.getSnapshot().lastBrainUnreachableAt;
+    expect(ts).not.toBeNull();
+    expect(ts).toBeGreaterThanOrEqual(before);
+  });
+
+  it("same-boot hello session reset → lastBrainUnreachableAt clear (Codex P3)", () => {
+    store.applyEspMessage(helloMsg("boot_a"));
+    store.applyEspMessage({
+      v: 1,
+      type: "error",
+      ts_ms: 0,
+      device_id: D,
+      boot_id: "boot_a",
+      payload: { code: "brain_unreachable", message: "test" },
+    });
+    expect(store.getSnapshot().lastBrainUnreachableAt).not.toBeNull();
+
+    // 같은 boot_id로 hello 재수신 → session reset이 lastBrainUnreachableAt도 clear
+    store.applyEspMessage(helloMsg("boot_a"));
+    expect(store.getSnapshot().lastBrainUnreachableAt).toBeNull();
+  });
+
+  it("error{code:!= brain_unreachable} → lastBrainUnreachableAt 안 건드림", () => {
+    const errMsg: EspMessage = {
+      v: 1,
+      type: "error",
+      ts_ms: 0,
+      device_id: D,
+      boot_id: "boot_a",
+      payload: { code: "busy", message: "test" },
+    };
+    store.applyEspMessage(errMsg);
+    expect(store.getSnapshot().lastBrainUnreachableAt).toBeNull();
   });
 
   it("disconnected → connection만 reset, history 유지", () => {
