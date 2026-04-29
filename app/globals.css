@@ -1,5 +1,5 @@
 @import "../src/styles/tokens.css";
 
 body {
-  background: #ececec;
+  background: var(--bg);
 }

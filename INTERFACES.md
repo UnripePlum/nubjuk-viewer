@@ -45,34 +45,47 @@ export type MotionEvent =
 
 export type MotionFailReason = "timeout" | "hardware" | "e_stop" | "precondition" | "unknown";
 
+// ESP가 진실원으로 보내는 terminal result. settle()의 단일 ingress.
+// (Phase 5 Unity도 같은 시그니처로 이식 — ESP 종료 권위는 transport-agnostic.)
+export type MotionSettleResult =
+  | { type: "completed"; correlationId: string; actualMs: number }
+  | { type: "failed";    correlationId: string; reason: MotionFailReason };
+
 export interface MotionController {
-  // play는 "수락 즉시" resolve. 완료/실패는 onEvent로만 통지 (이중 채널 X).
+  // 시각 재생 시작 + started event emit. terminal 권위 X — completed/failed는 settle()로만.
   play(intent: IntentName, durationMs: number, correlationId: string): Promise<void>;
-  stop(): void;            // 진행 중이면 cancelled 이벤트 발화
+  // ESP terminal 결과 inject. completed/failed event를 emit.
+  // stale cid는 dispatcher가 거른 후 호출. impl은 cid 불일치 시 no-op.
+  settle(result: MotionSettleResult): void;
+  // local cancellation only. cancelled{stop_called} emit.
+  stop(): void;
   isPlaying(): boolean;
   getCurrentCorrelationId(): string | null;
   onEvent(handler: (ev: MotionEvent) => void): Subscription;
 }
 ```
 
-**Lifecycle 규칙**:
-- `play()` Promise는 **수락 시점**에 resolve (animation 시작은 별개). 완료는 `onEvent({type:"completed"})`로만.
+**Lifecycle 규칙 (ESP-as-truth)**:
+- `play()` Promise는 **수락 시점**에 resolve (animation 시작은 별개). started event 즉시 emit.
+- terminal 권위는 ESP. `motion_completed`/`motion_failed` 수신 → IntentDispatcher가 `settle()` 호출 → completed/failed event emit.
 - 같은 correlationId로 두 번 play 호출 → 두 번째는 무시 (idempotent)
 - 다른 correlationId로 play 호출 (진행 중) → 현재 motion에 `cancelled{reason:"superseded"}` 발화 후 새로 시작
-- `stop()` 진행 중에만 `cancelled{reason:"stop_called"}` 발화. idle이면 no-op.
+- `stop()` 진행 중에만 `cancelled{reason:"stop_called"}` 발화. idle이면 no-op. local cancellation 전용 (ESP 통보 X).
+- `settle()` cid 불일치는 no-op. dispatcher가 stale 거부를 1차 처리, settle은 방어적 idempotent.
+- impl은 ESP 무응답 대비 watchdog (ex: WebMotionController는 `expectedMs * 2 + grace` 후 `failed{timeout}`) 가질 수 있음 — 단, expectedMs 도달만으로 자체 completed emit 금지 (ESP 권위 위반).
 - 늦게 도착하는 ESP 메시지(예: 이전 cycle의 motion_completed)는 IntentDispatcher가 `getCurrentCorrelationId()` 비교 후 dispatch — stale 이벤트는 motion에 전달 X
 
 ## 구현체 매트릭스
 
 ```typescript
 // 모두 같은 MotionController 인터페이스 만족
-class WebMotionController implements MotionController { /* GIF, P2~4 */ }
-class UnityMotionController implements MotionController { /* 3D, P5~ */ }
-class MockMotionController implements MotionController { /* 테스트 spy */ }
+class WebMotionController implements MotionController { /* GIF + watchdog, P2~4 */ }
+class UnityMotionController implements MotionController { /* 3D, P5~  TODO */ }
+class MockMotionController implements MotionController { /* 테스트 spy, timer 없음 */ }
 
 // 모두 같은 ViewerConnection 인터페이스 만족
-class WebSocketViewerConnection implements ViewerConnection { /* 실제 WS, P2~ */ }
-class MockViewerConnection implements ViewerConnection { /* 테스트 */ }
+class WebSocketViewerConnection implements ViewerConnection { /* 실제 WS, P2~ TODO */ }
+class MockViewerConnection implements ViewerConnection { /* sequence-driven 테스트/데모 */ }
 ```
 
 ## `viewer/src/motion/intentDispatcher.ts` — 메시지 dispatch 단일 진입점

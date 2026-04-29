@@ -265,24 +265,12 @@ export function IntentPanel({
 }
 
 // ───────────────────────────────────────────
-// NubjukViewer — preloaded GIFs, no flicker on transition
-// 모든 모션 GIF를 미리 mount하고 opacity로 전환
+// NubjukViewer — 단일 active GIF만 render. 새 motion(cid)마다 src에 cid query 붙여 *새 URL*로 fetch
+// → 브라우저가 새 GIF instance로 처리 → frame 1부터 decode 보장.
+// preloader는 의도적으로 두지 않음. preloader가 있으면 cache instance 공유로 mid-cycle frame 발생 가능.
 // ───────────────────────────────────────────
 const NUBJUK_NAMES: MotionName[] = ["idle", "sit", "stand", "roll_left", "roll_right", "surprise", "hand"];
-
-function NubjukPreloader() {
-  return (
-    <div
-      aria-hidden="true"
-      style={{ position: "absolute", width: 0, height: 0, overflow: "hidden", pointerEvents: "none" }}
-    >
-      {NUBJUK_NAMES.map((name) => (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img key={name} src={MOTION_REGISTRY[name].gif} alt="" width={1} height={1} />
-      ))}
-    </div>
-  );
-}
+void NUBJUK_NAMES; // reserved for future preload via Cache API if needed
 
 export function NubjukViewer({
   motion = null,
@@ -319,6 +307,10 @@ export function NubjukViewer({
 
   const activeName: MotionName = (motion?.name ?? pose ?? "idle") as MotionName;
   const imgSize = Math.round(size * 0.82);
+  const entry = MOTION_REGISTRY[activeName] ?? MOTION_REGISTRY.idle;
+  // motion이 진행 중이면 cid로, 아니면 pose name으로 key. src에도 cid query 붙여 *새 URL* 강제 (frame 1 보장).
+  const remountKey = motion ? `${activeName}::${motion.correlationId}` : `pose::${activeName}`;
+  const imgSrc = motion ? `${entry.gif}?cid=${encodeURIComponent(motion.correlationId)}` : entry.gif;
 
   return (
     <div
@@ -331,8 +323,6 @@ export function NubjukViewer({
         justifyContent: "center",
       }}
     >
-      <NubjukPreloader />
-
       {motion && !failed && (
         <div
           aria-hidden="true"
@@ -348,35 +338,21 @@ export function NubjukViewer({
       )}
 
       <div style={{ position: "relative", width: imgSize, height: imgSize, zIndex: 1 }}>
-        {NUBJUK_NAMES.map((name) => {
-          const isActive = name === activeName;
-          const layerStyle: CSSProperties = {
-            position: "absolute",
-            inset: 0,
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          key={remountKey}
+          src={imgSrc}
+          alt={`넙죽이 ${activeName} 모션`}
+          width={imgSize}
+          height={imgSize}
+          style={{
+            display: "block",
             imageRendering: "pixelated",
-            filter: failed && isActive ? "grayscale(0.6)" : "none",
-            opacity: isActive ? 1 : 0,
-            transition: "opacity 0.15s linear, filter 0.4s",
+            filter: failed ? "grayscale(0.6)" : "none",
+            transition: "filter 0.4s",
             pointerEvents: "none",
-          };
-          // Active layer remounts on each new correlation_id (or pose change) so the GIF
-          // restarts at frame 1 instead of resuming mid-cycle. Inactive layers keep a
-          // stable key so they remain in cache.
-          const activationToken = motion?.correlationId ?? `pose-${pose}`;
-          const key = isActive ? `${name}::${activationToken}` : name;
-          return (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              key={key}
-              src={MOTION_REGISTRY[name].gif}
-              alt={isActive ? `넙죽이 ${activeName} 모션` : ""}
-              aria-hidden={!isActive}
-              width={imgSize}
-              height={imgSize}
-              style={layerStyle}
-            />
-          );
-        })}
+          }}
+        />
       </div>
 
       {failed && (

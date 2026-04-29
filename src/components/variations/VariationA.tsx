@@ -35,10 +35,12 @@ export function VariationA({ store, showDevHint = true }: Props) {
   return (
     <div
       style={{
-        width: 360,
-        minHeight: 720,
+        width: "100%",
+        maxWidth: 480,
+        minHeight: "100vh",
         background: "var(--bg)",
         padding: "20px 16px 28px",
+        margin: "0 auto",
         position: "relative",
         fontFamily: "var(--font-sans)",
         overflow: "hidden",

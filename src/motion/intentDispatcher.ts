@@ -1,19 +1,18 @@
-// IntentDispatcher — ESP→viewer 메시지의 단일 진입점.
-// ARCHITECTURE.md dispatch matrix + correlation_id stale 거부 정신을 그대로 따름.
+// IntentDispatcher — ESP→viewer 메시지 단일 진입점.
+// ARCHITECTURE.md dispatch matrix + ESP-as-truth + correlation_id stale 거부.
 //
 // 흐름:
 //   ViewerConnection.onMessage → dispatch(msg)
 //   ┌── hello/state/intent/heartbeat/error → store.applyEspMessage
-//   ├── motion_started → store.applyEspMessage + motion.play
-//   ├── motion_completed → cid stale 검증 → motion.stop (cancelled) + store.applyEspMessage
-//   └── motion_failed → cid stale 검증 → motion.fail (failed event) + store.applyEspMessage
+//   ├── motion_started   → store.applyEspMessage + motion.play
+//   ├── motion_completed → cid stale 검증 → motion.settle({completed, actualMs})
+//   └── motion_failed    → cid stale 검증 → motion.settle({failed, reason})
 //
 //   MotionController.onEvent → store.applyMotionEvent
 
 import type { EspMessage } from "@/types/protocol";
-import type { ViewerConnection } from "@/ws/ViewerConnection";
-import type { Subscription } from "@/ws/ViewerConnection";
-import type { WebMotionController } from "@/controller/WebMotionController";
+import type { ViewerConnection, Subscription } from "@/ws/ViewerConnection";
+import type { MotionController } from "@/controller/MotionController";
 import type { ViewerStore } from "@/store/viewerStore";
 
 export class IntentDispatcher {
@@ -21,7 +20,7 @@ export class IntentDispatcher {
 
   constructor(
     private readonly conn: ViewerConnection,
-    private readonly motion: WebMotionController,
+    private readonly motion: MotionController,
     private readonly store: ViewerStore,
   ) {
     this.subs.push(conn.onMessage((msg) => this.dispatch(msg)));
@@ -46,25 +45,27 @@ export class IntentDispatcher {
     switch (msg.type) {
       case "motion_started":
         // controller가 timer + started event 책임. 같은 cid 두 번은 controller가 idempotent.
-        this.motion.play(msg.payload.intent, msg.payload.expected_duration_ms, msg.correlation_id);
+        this.motion.play(
+          msg.payload.intent,
+          msg.payload.expected_duration_ms,
+          msg.correlation_id,
+        );
         break;
 
       case "motion_completed": {
         const currentCid = this.motion.getCurrentCorrelationId();
         if (currentCid && currentCid !== msg.correlation_id) {
-          // stale message — store에만 기록, controller에 전달 X
           this.store.recordProtocolError(
             `stale motion_completed cid=${msg.correlation_id} (current=${currentCid})`,
           );
           break;
         }
-        // ESP가 명시적으로 완료 보고. controller timer 정리.
-        // controller.stop()은 cancelled 이벤트를 발화하지만 store는 이미 completed로 마크되어 무시.
-        // 더 명시적으로: controller가 이미 같은 cid로 자체 timer 끝남 → no-op.
-        // 아직 진행 중이라면 stop으로 cancel.
-        if (this.motion.isPlaying()) {
-          this.motion.stop();
-        }
+        // ESP terminal authority — settle()이 watchdog 정리 + completed event emit.
+        this.motion.settle({
+          type: "completed",
+          correlationId: msg.correlation_id,
+          actualMs: msg.payload.actual_duration_ms,
+        });
         break;
       }
 
@@ -76,8 +77,11 @@ export class IntentDispatcher {
           );
           break;
         }
-        // controller에 failed 통보 — failed event 발화 → store가 status='failed' 마크
-        this.motion.fail(msg.correlation_id, msg.payload.reason);
+        this.motion.settle({
+          type: "failed",
+          correlationId: msg.correlation_id,
+          reason: msg.payload.reason,
+        });
         break;
       }
 

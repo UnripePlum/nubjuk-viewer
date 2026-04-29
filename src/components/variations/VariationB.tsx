@@ -32,11 +32,13 @@ export function VariationB({ store }: Props) {
   return (
     <div
       style={{
-        width: 360,
-        minHeight: 720,
+        width: "100%",
+        maxWidth: 480,
+        minHeight: "100vh",
         background: B_PAPER,
         color: B_INK,
         padding: "16px 14px 20px",
+        margin: "0 auto",
         position: "relative",
         fontFamily: "var(--font-mono)",
         overflow: "hidden",

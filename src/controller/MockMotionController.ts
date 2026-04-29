@@ -1,42 +1,37 @@
-// WebMotionController — DOM 친화적 MotionController 구현체.
-// ESP가 motion lifecycle의 진실원. 로컬 timer는 *watchdog*으로만 작동:
-//   - 정상: ESP가 motion_completed/motion_failed → dispatcher → settle() → 즉시 종료
-//   - 비정상: watchdog 만료 (expectedMs * 2 + grace)까지 settle 없으면 자체 failed{timeout}
-// → expectedMs 도달했다고 자체 completed emit하지 않음 (Codex P0 fix: 이중 종료 + ESP 권위 위반).
+// MockMotionController — 단위 테스트용 spy.
+// MotionController 인터페이스 만족. 자체 timer 없음 — 모든 lifecycle은 명시적 호출로만.
+// 테스트가 settle/stop을 직접 호출하고 emit된 event 시퀀스를 검증.
 
 import type { IntentName } from "@/types/protocol";
 import type { Subscription } from "@/ws/ViewerConnection";
 import type { MotionController, MotionEvent, MotionSettleResult } from "./MotionController";
 
-const WATCHDOG_GRACE_MS = 1000;
-
-function watchdogMs(expectedMs: number): number {
-  // mcu watchdog (expectedMs * 1.5 추정) 보다 항상 길게 — race 시 mcu 진리 우선.
-  return Math.max(expectedMs * 2, expectedMs + WATCHDOG_GRACE_MS);
-}
-
-type Handler = (ev: MotionEvent) => void;
-
-interface ActiveMotion {
+interface MockActive {
   intent: IntentName;
   durationMs: number;
   correlationId: string;
   startedAt: number;
-  watchdog: ReturnType<typeof setTimeout>;
 }
 
-export class WebMotionController implements MotionController {
-  private active: ActiveMotion | null = null;
-  private handlers = new Set<Handler>();
+export class MockMotionController implements MotionController {
+  private active: MockActive | null = null;
+  private handlers = new Set<(ev: MotionEvent) => void>();
+  private events: MotionEvent[] = [];
+
+  // 테스트가 검증하는 emit log
+  getEvents(): readonly MotionEvent[] {
+    return this.events;
+  }
+
+  resetSpy(): void {
+    this.active = null;
+    this.events = [];
+  }
 
   async play(intent: IntentName, durationMs: number, correlationId: string): Promise<void> {
-    // 같은 cid → idempotent
     if (this.active?.correlationId === correlationId) return;
-
-    // 다른 cid 진행 중 → cancel(superseded) 후 새로 시작
     if (this.active) {
       const prev = this.active;
-      clearTimeout(prev.watchdog);
       this.active = null;
       this.emit({
         type: "cancelled",
@@ -44,23 +39,17 @@ export class WebMotionController implements MotionController {
         reason: "superseded",
       });
     }
-
-    const startedAt = performance.now();
-    const watchdog = setTimeout(() => {
-      const m = this.active;
-      if (!m || m.correlationId !== correlationId) return;
-      // ESP가 watchdog 만료까지 settle 안 함 → 자체 failed{timeout}
-      this.active = null;
-      this.emit({ type: "failed", correlationId, reason: "timeout" });
-    }, watchdogMs(durationMs));
-
-    this.active = { intent, durationMs, correlationId, startedAt, watchdog };
+    this.active = {
+      intent,
+      durationMs,
+      correlationId,
+      startedAt: performance.now(),
+    };
     this.emit({ type: "started", correlationId, intent, expectedMs: durationMs });
   }
 
   settle(result: MotionSettleResult): void {
     if (!this.active || this.active.correlationId !== result.correlationId) return;
-    clearTimeout(this.active.watchdog);
     const cid = this.active.correlationId;
     this.active = null;
     if (result.type === "completed") {
@@ -73,7 +62,6 @@ export class WebMotionController implements MotionController {
   stop(): void {
     if (!this.active) return;
     const prev = this.active;
-    clearTimeout(prev.watchdog);
     this.active = null;
     this.emit({
       type: "cancelled",
@@ -90,7 +78,7 @@ export class WebMotionController implements MotionController {
     return this.active?.correlationId ?? null;
   }
 
-  onEvent(handler: Handler): Subscription {
+  onEvent(handler: (ev: MotionEvent) => void): Subscription {
     this.handlers.add(handler);
     return {
       dispose: () => {
@@ -100,6 +88,7 @@ export class WebMotionController implements MotionController {
   }
 
   private emit(ev: MotionEvent) {
+    this.events.push(ev);
     this.handlers.forEach((h) => h(ev));
   }
 }

@@ -31,10 +31,12 @@ export function VariationC({ store }: Props) {
   return (
     <div
       style={{
-        width: 360,
-        minHeight: 720,
+        width: "100%",
+        maxWidth: 480,
+        minHeight: "100vh",
         background: "#fafafa",
         padding: "16px 16px 20px",
+        margin: "0 auto",
         position: "relative",
         fontFamily: "var(--font-sans)",
         overflow: "hidden",

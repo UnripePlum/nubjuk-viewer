@@ -25,6 +25,10 @@ const RECENT_MSG_LIMIT = 10;
 
 export type MotionUiStatus = "started" | "completed" | "failed" | "cancelled" | null;
 
+// "현재 또는 마지막 시작된 motion" — terminal(completed/failed/cancelled) 후에도 유지.
+// UI consumer는 *currently running*이 필요하면 motionStatus === 'started'로 가드 필수.
+// 다음 motion의 'started' event가 오거나 hello session reset 시 갱신/clear.
+// (이 의미는 MotionChip이 "DONE/FAILED" 상태에서도 motion 이름을 보여주기 위함.)
 export interface ActiveMotion {
   name: string;
   durationMs: number;
