@@ -7,9 +7,17 @@ import { VariationB } from "@/components/variations/VariationB";
 import { VariationC } from "@/components/variations/VariationC";
 import { PoseEnginePanel } from "@/components/PoseEnginePanel";
 import { MockViewerConnection } from "@/ws/MockViewerConnection";
+import { WebSocketViewerConnection } from "@/ws/WebSocketViewerConnection";
+import {
+  resolveEspHost,
+  toWsUrl,
+  persistEspHost,
+  type HostResolution,
+} from "@/ws/resolveEspHost";
 import { WebMotionController } from "@/controller/WebMotionController";
 import { ViewerStore } from "@/store/viewerStore";
 import { IntentDispatcher } from "@/motion/intentDispatcher";
+import type { ViewerConnection } from "@/ws/ViewerConnection";
 import { SEQUENCES, type SequenceKey } from "@/data/sequences";
 
 type LayoutKey = "A" | "B" | "C";
@@ -171,12 +179,117 @@ function CompareCell({ children, label }: { children: React.ReactNode; label: st
   );
 }
 
+// ─────────────────────────────────────────────
+// Real WS path — ?host=192.168.0.42:80 / ?host=nubjuk.local 등.
+// useViewerSession (Mock)과 분리: 시퀀스 개념 X, single view only.
+// ─────────────────────────────────────────────
+
+interface RealSession {
+  conn: WebSocketViewerConnection;
+  motion: WebMotionController;
+  store: ViewerStore;
+  dispatcher: IntentDispatcher;
+}
+
+function useRealSession(host: string): RealSession {
+  const [session] = useState<RealSession>(() => {
+    const conn = new WebSocketViewerConnection();
+    const motion = new WebMotionController();
+    const store = new ViewerStore();
+    const dispatcher = new IntentDispatcher(conn as unknown as ViewerConnection, motion, store);
+    return { conn, motion, store, dispatcher };
+  });
+
+  useEffect(() => {
+    const url = toWsUrl(host);
+    void session.conn.connect(url);
+    persistEspHost(host); // 연결 시도 자체는 정규화된 host였으니 저장 — 다음 부팅에 자동
+    return () => {
+      session.conn.disconnect();
+      session.motion.stop();
+    };
+  }, [host, session]);
+
+  return session;
+}
+
+function RealView({ host, layout }: { host: string; layout: LayoutKey }) {
+  const { store, conn } = useRealSession(host);
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "row",
+        flexWrap: "wrap",
+        gap: 24,
+        padding: 24,
+        alignItems: "flex-start",
+        justifyContent: "center",
+        minHeight: "100vh",
+        background: "var(--bg)",
+      }}
+    >
+      <div style={{ flex: "1 1 360px", maxWidth: 480, alignSelf: "stretch" }}>
+        <VariationByLayout layout={layout} store={store} />
+      </div>
+      <div style={{ flex: "0 1 400px", maxWidth: 400, alignSelf: "flex-start" }}>
+        <PoseEnginePanel store={store} conn={conn} />
+      </div>
+    </div>
+  );
+}
+
+function HostError({ resolution }: { resolution: HostResolution }) {
+  if (resolution.ok) return null;
+  return (
+    <div
+      style={{
+        minHeight: "100vh",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 12,
+        fontFamily: "var(--font-mono)",
+        background: "var(--bg)",
+        color: "var(--fg)",
+        padding: 24,
+        textAlign: "center",
+      }}
+    >
+      <div style={{ fontSize: 16, fontWeight: 600 }}>ESP host 결정 실패</div>
+      {resolution.reason === "invalid" && (
+        <div style={{ fontSize: 12, color: "var(--fg-dim)" }}>
+          {resolution.source} 입력 형식이 올바르지 않습니다: <code>{resolution.raw}</code>
+        </div>
+      )}
+      {resolution.reason === "no_source" && (
+        <div style={{ fontSize: 12, color: "var(--fg-dim)" }}>
+          host 정보 없음. URL에 <code>?host=192.168.0.42:80</code> 같은 query를 추가하거나, <code>NEXT_PUBLIC_ESP_HOST</code> 환경변수를 설정하세요.
+        </div>
+      )}
+      <div style={{ fontSize: 11, color: "var(--fg-faint)", marginTop: 8 }}>
+        host 빼고 시도하면 mock 모드로 작동합니다 — <code>?sequence=sit-success</code>
+      </div>
+    </div>
+  );
+}
+
 function Stage() {
   const params = useSearchParams();
   const layout = pickLayout(params.get("layout"));
   const sequenceKey = pickSequence(params.get("sequence"));
   const compare = params.get("compare") === "1";
+  const hostQuery = params.get("host");
 
+  // ?host= 명시 → real WS path
+  if (hostQuery !== null) {
+    const resolution = resolveEspHost({ query: hostQuery });
+    if (!resolution.ok) return <HostError resolution={resolution} />;
+    return <RealView host={resolution.host} layout={layout} />;
+  }
+
+  // 기본: mock path (compare / single)
   if (compare) return <CompareView sequenceKey={sequenceKey} />;
   return <SingleView layout={layout} sequenceKey={sequenceKey} />;
 }
